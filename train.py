@@ -42,7 +42,12 @@ def train(hyp, opt, device, tb_writer=None):
     logger.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
     save_dir, epochs, batch_size, total_batch_size, weights, rank, freeze = \
         Path(opt.save_dir), opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank, opt.freeze
-
+    if opt.mlflow:
+        mlflow.set_experiment(opt.mf_exp)
+        mlflow.set_uri(opt.uri)
+        experiment_id = mlflow.get_experiment_by_name(opt.mf_exp).experiment_id
+        mlflow.start_run(experiment_id=experiment_id, run_name=opt.save_dir)
+        mlflow.log_params(vars(opt))
     # Directories
     wdir = save_dir / 'weights'
     wdir.mkdir(parents=True, exist_ok=True)  # make dir
@@ -442,6 +447,8 @@ def train(hyp, opt, device, tb_writer=None):
                     tb_writer.add_scalar(tag, x, epoch)  # tensorboard
                 if wandb_logger.wandb:
                     wandb_logger.log({tag: x})  # W&B
+                if opt.mlflow:
+                    mlflow.log_metric(tag, x, step=epoch)
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
@@ -562,6 +569,11 @@ if __name__ == '__main__':
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--mlflow', action='store_true', help='wether or not mlflow should be used to log the train')
+    parser.add_argument('--mf-uri', type=str, help='mlflow uri')
+    parser.add_argument('--mf-user', type=str, help='mlflow username')
+    parser.add_argument('--mf-pass', type=str, help='mlflow password')
+    parser.add_argument('--mf-exp', type=str, help='the experiment in which the run should get added')
     opt = parser.parse_args()
 
     # Set DDP variables
