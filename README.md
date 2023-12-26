@@ -1,4 +1,6 @@
-# Official YOLOv7
+# UNOfficial YOLOv7
+
+**DISCLAIMER: In this repo, I've added the support for MLFlow library. Last arguments of train.py are dedicated to MLFlow logging.**
 
 Implementation of paper - [YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors](https://arxiv.org/abs/2207.02696)
 
