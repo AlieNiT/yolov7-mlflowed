@@ -33,7 +33,6 @@ from utils.google_utils import attempt_download
 from utils.loss import ComputeLoss, ComputeLossOTA
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
-from utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +262,7 @@ def train(hyp, opt, device):
     if rank in [-1, 0]:
         testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
                                        hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
-                                       world_size=opt.world_size, workers=opt.workers,
+                                       world_size=opt.world_size, workers=opt.workers, shuffle=False,
                                        pad=0.5, prefix=colorstr('val: '))[0]
 
         if not opt.resume:
@@ -396,7 +395,8 @@ def train(hyp, opt, device):
                 if plots and ni < 10:
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
                     Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
-
+                # if plots and ni == 10:
+                    # mlflow.log_artifacts(save_dir, artifact_path="plots")
             # end batch ------------------------------------------------------------------------------------------------
         # end epoch ----------------------------------------------------------------------------------------------------
 
@@ -430,11 +430,11 @@ def train(hyp, opt, device):
                 os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
 
             # Log
-            tags = ['train/box_loss', 'train/obj_loss', 'train/cls_loss',  # train loss
+            tags = ['train/box_loss', 'train/obj_loss', 'train/cls_loss', 'train/total_loss', # train loss
                     'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5-0.95',
                     'val/box_loss', 'val/obj_loss', 'val/cls_loss',  # val loss
                     'x/lr0', 'x/lr1', 'x/lr2']  # params
-            for x, tag in zip(list(mloss[:-1]) + list(results) + lr, tags):
+            for x, tag in zip(list(mloss) + list(results) + lr, tags):
                 if opt.mf_name:
                     mlflow.log_metric(tag, x, step=epoch)  # mlflow
 
@@ -545,11 +545,10 @@ if __name__ == '__main__':
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
-    parser.add_argument('--mlflow', action='store_true', help='weather or not the training should be logged in mlflow')
-    parser.add_argument('--mf-uri', type=str, help='mlflow uri')
-    parser.add_argument('--mf-user', type=str, help='mlflow username')
-    parser.add_argument('--mf-pass', type=str, help='mlflow password')
-    parser.add_argument('--mf-name', type=str, help='the experiment in which the run should get added')
+    parser.add_argument('--mf-uri', type=str, default='http://192.168.20.21/', help='mlflow uri') # my own server
+    parser.add_argument('--mf-user', type=str, default='', help='mlflow username')
+    parser.add_argument('--mf-pass', type=str, default='', help='mlflow password')
+    parser.add_argument('--mf-name', type=str, default="phone_detection", help='the experiment in which the run should get added')
     opt = parser.parse_args()
 
     # Set DDP variables
@@ -561,8 +560,7 @@ if __name__ == '__main__':
     #    check_requirements()
 
     # Resume
-    wandb_run = check_wandb_resume(opt)
-    if opt.resume and not wandb_run:  # resume an interrupted run
+    if opt.resume:  # resume an interrupted run
         ckpt = opt.resume if isinstance(opt.resume, str) else get_latest_run()  # specified or most recent path
         assert os.path.isfile(ckpt), 'ERROR: --resume checkpoint does not exist'
         apriori = opt.global_rank, opt.local_rank
